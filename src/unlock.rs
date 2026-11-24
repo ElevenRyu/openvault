@@ -23,6 +23,7 @@ use crate::vault::{self, Config, MetaKeys, Vault};
 
 pub const ENV_IDENTITY: &str = "OPENVAULT_IDENTITY";
 pub const ENV_PASSPHRASE: &str = "OPENVAULT_PASSPHRASE";
+#[cfg(target_os = "macos")]
 const KEYCHAIN_SERVICE: &str = "openvault.meta";
 const MIN_PASSPHRASE: usize = 12;
 

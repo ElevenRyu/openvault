@@ -83,7 +83,7 @@ static on Linux).
 
 | Command | What it does |
 |---|---|
-| `openvault init [--unlock se\|passphrase]` | Create the vault; prints the paper recovery key. Defaults to Secure Enclave when `age-plugin-se` is installed. |
+| `openvault init [--unlock se\|passphrase] [--se-access-control …]` | Create the vault; prints the paper recovery key. Defaults to Secure Enclave when `age-plugin-se` is installed, with `any-biometry` (Touch ID required; use `any-biometry-or-passcode` on Macs without Touch ID). |
 | `openvault add NAME [--env VAR] [--desc D] [--tag T] [--scope DIR] [--force\|--meta-only]` | Store a value from stdin or a hidden prompt (never argv). |
 | `openvault get NAME [--reveal]` | Show a value to a human at a terminal. |
 | `openvault ls [PREFIX] [--json]` | List names. |

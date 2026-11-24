@@ -104,5 +104,5 @@ jobs:
           mkdir -p fuzz/corpus/import
           for f in tests/fixtures/*; do cp "$f" "fuzz/corpus/import/$(basename "$f")"; done
           cd fuzz
-          cargo fuzz run import corpus/import -- -max_total_time=60
-          cargo fuzz run redact -- -max_total_time=60
+          cargo fuzz run --target x86_64-unknown-linux-gnu import corpus/import -- -max_total_time=60
+          cargo fuzz run --target x86_64-unknown-linux-gnu redact -- -max_total_time=60

@@ -101,7 +101,7 @@ impl Redactor {
                 pats.push((v, repl.clone()));
             }
         }
-        pats.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+        pats.sort_by_key(|p| std::cmp::Reverse(p.0.len()));
         (
             Redactor {
                 pats,

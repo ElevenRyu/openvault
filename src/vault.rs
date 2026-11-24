@@ -380,7 +380,7 @@ impl Vault {
                 Err(e) => eprintln!("openvault: warning: unreadable metadata {fname}: {e}"),
             }
         }
-        out.sort_by(|a, b| a.name.cmp(&b.name));
+        out.sort_unstable_by(|a, b| a.name.cmp(&b.name));
         Ok(out)
     }
 

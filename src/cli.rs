@@ -309,7 +309,7 @@ fn read_value(name: &str) -> Result<Zeroizing<Vec<u8>>> {
         bail!("empty value; nothing stored");
     }
     if v.len() > vault::MAX_VALUE_LEN {
-        v.truncate(0);
+        v.clear();
         bail!("value too large (max {} bytes)", vault::MAX_VALUE_LEN);
     }
     Ok(v)
