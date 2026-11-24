@@ -1,0 +1,108 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --all-targets --locked -- -D warnings
+      - run: cargo test --locked
+      - name: unsafe is confined to src/platform.rs
+        run: |
+          hits=$(grep -rln 'allow(unsafe_code)' src | grep -v '^src/platform.rs$' || true)
+          if [ -n "$hits" ]; then echo "unsafe allowed outside platform.rs: $hits"; exit 1; fi
+
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.89
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --locked --all-targets
+
+  supply-chain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check advisories bans licenses sources
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      - run: cargo audit --deny warnings
+
+  static-linux:
+    name: static musl binary
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - uses: Swatinem/rust-cache@v2
+      - run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - run: cargo build --release --locked --target x86_64-unknown-linux-musl
+      - run: |
+          f=target/x86_64-unknown-linux-musl/release/openvault
+          file "$f"
+          file "$f" | grep -Eq 'static(ally|-pie) linked'
+          ls -l "$f"
+
+  reproducible:
+    name: reproducible release build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: a
+      - uses: actions/checkout@v4
+        with:
+          path: b
+      - uses: dtolnay/rust-toolchain@stable
+      - name: build twice from different paths and compare
+        run: |
+          for d in a b; do
+            (cd $d && RUSTFLAGS="--remap-path-prefix=$GITHUB_WORKSPACE/$d=/build --remap-path-prefix=$HOME/.cargo=/cargo" \
+               cargo build --release --locked)
+          done
+          sha256sum a/target/release/openvault b/target/release/openvault
+          cmp a/target/release/openvault b/target/release/openvault
+
+  fuzz:
+    name: fuzz (smoke, 60s per target)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-fuzz
+      - run: |
+          mkdir -p fuzz/corpus/import
+          for f in tests/fixtures/*; do cp "$f" "fuzz/corpus/import/$(basename "$f")"; done
+          cd fuzz
+          cargo fuzz run import corpus/import -- -max_total_time=60
+          cargo fuzz run redact -- -max_total_time=60

@@ -129,7 +129,37 @@ pub struct Prepared {
 /// Resolve, authorise, unlock and decrypt. Writes the audit record.
 pub fn prepare(v: &Vault, mk: &MetaKeys, req: &Request, via: &str) -> Result<Prepared> {
     let project = policy::find(&req.cwd)?;
-    let all = v.all_meta(mk)?;
+    // Only `--env VAR` lookups need every secret's metadata; otherwise decrypt
+    // just the metadata of the refs involved (keeps `run --only` fast).
+    let all = if req.env.is_empty() {
+        let mut wanted: Vec<String> = req
+            .only
+            .iter()
+            .flat_map(|o| o.split(','))
+            .map(|p| p.trim())
+            .filter(|p| !p.is_empty())
+            .map(|p| names::strip_ref(p.split_once('=').map(|x| x.1).unwrap_or(p)).to_string())
+            .collect();
+        wanted.extend(project.iter().flat_map(|p| p.env.values().cloned()));
+        wanted.extend(
+            req.inherited
+                .iter()
+                .filter_map(|(_, v)| v.strip_prefix(names::REF_SCHEME).map(String::from)),
+        );
+        wanted.sort();
+        wanted.dedup();
+        let mut metas = Vec::new();
+        for n in wanted {
+            if names::validate(&n).is_ok() {
+                if let Some(m) = v.read_meta(mk, &n)? {
+                    metas.push(m);
+                }
+            }
+        }
+        metas
+    } else {
+        v.all_meta(mk)?
+    };
     let inj = plan(&all, project.as_ref(), req)?;
     let names: Vec<String> = inj.iter().map(|i| i.name.clone()).collect();
     let mut confirm = false;

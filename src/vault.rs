@@ -338,16 +338,40 @@ impl Vault {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(out),
             Err(e) => return Err(e.into()),
         };
+        let mut files = Vec::new();
         for ent in rd {
             let ent = ent?;
             let fname = ent.file_name().to_string_lossy().to_string();
-            let Some(id) = fname.strip_suffix(".age") else {
-                continue;
-            };
-            if fname.starts_with('.') {
+            if fname.starts_with('.') || !fname.ends_with(".age") {
                 continue;
             }
-            match self.decrypt_meta_file(mk, &ent.path()) {
+            files.push((fname, ent.path()));
+        }
+        // X25519 per file dominates; spread it over a few threads.
+        let threads = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1)
+            .clamp(1, 8);
+        let chunk = files.len().div_ceil(threads).max(16);
+        let results: Vec<(String, Result<Meta>)> = std::thread::scope(|sc| {
+            let handles: Vec<_> = files
+                .chunks(chunk)
+                .map(|part| {
+                    sc.spawn(move || {
+                        part.iter()
+                            .map(|(f, p)| (f.clone(), self.decrypt_meta_file(mk, p)))
+                            .collect::<Vec<_>>()
+                    })
+                })
+                .collect();
+            handles
+                .into_iter()
+                .flat_map(|h| h.join().unwrap_or_default())
+                .collect()
+        });
+        for (fname, res) in results {
+            let id = fname.trim_end_matches(".age");
+            match res {
                 Ok(m) if mk.file_id(&m.name) == id => out.push(m),
                 Ok(m) => eprintln!(
                     "openvault: warning: metadata file {fname} claims name {:?} but does not match it; ignoring (tampered?)",
