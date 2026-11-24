@@ -55,6 +55,9 @@ pub struct Config {
     /// "se" (Secure Enclave via age-plugin-se) or "passphrase".
     pub unlock: String,
     pub created: String,
+    /// How long one Touch ID unlocks values for, e.g. "15m" ("0" disables sessions).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_ttl: Option<String>,
 }
 
 /// Searchable metadata. Encrypted at rest with the metadata key; never holds a value.

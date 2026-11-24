@@ -13,6 +13,7 @@ pub mod platform;
 pub mod policy;
 pub mod redact;
 pub mod run;
+pub mod session;
 pub mod unlock;
 pub mod util;
 pub mod vault;
