@@ -19,8 +19,13 @@ must not try to.
 3. **Never write secret values to files**, `.env` files, logs or commit messages,
    and never try to decode `[REDACTED:…]` output.
 4. Do not edit `.openvault.toml` to widen access unless the user asked you to.
-5. A Touch ID prompt on the user's Mac is expected when you run a command that
-   uses secrets — tell the user why you need it.
+5. A Touch ID prompt on the user's Mac is expected the first time you use a secret
+   (and then about every 15 minutes, or every time for secrets tagged `confirm`).
+   Tell the user why you need it. If a command fails with "a fresh Touch ID …
+   unlock is required", ask the user to run `openvault unlock` — never try to
+   obtain the key or talk to the session socket yourself.
+6. Never run `openvault unlock`, `openvault lock` or `openvault init` on the user's behalf
+   unless they ask.
 
 ## Discover
 

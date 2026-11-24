@@ -93,9 +93,28 @@ static on Linux).
 | `openvault rm NAME…` | Delete. |
 | `openvault import FILE [--dry-run] [--on-conflict skip\|overwrite\|rename] [--prefix P] [--shred]` | Import; `--undo ID\|last` reverts. |
 | `openvault audit [verify]` | Show / verify the audit log. |
+| `openvault unlock [--for 15m]` / `openvault lock` | Start / end a session: one Touch ID unlocks values until it expires. |
 | `openvault mcp` | MCP stdio server for agents. |
 
 `ov` is a short alias for `openvault`.
+
+## Sessions: one Touch ID per 15 minutes
+
+The first command that needs a value asks for Touch ID and then starts a short
+**session**. Until it ends, `run` and the MCP server work without asking again:
+
+```sh
+openvault unlock --for 30m     # or let the first `run` start one (default 15m)
+openvault run --env GITHUB_TOKEN -- gh pr list   # no prompt
+openvault lock                 # end it now
+```
+
+* Sessions end after their TTL (`"session_ttl": "15m"` in `vault.json`, `0` disables
+  them), on `openvault lock`, when the Mac sleeps, and when the screen locks.
+* Secrets tagged `confirm` always need a fresh Touch ID, even inside a session.
+* The key stays in memory inside a small per-user agent process and never touches disk.
+  Every request it serves is audited with the requesting process.
+  See the [threat model](docs/THREAT_MODEL.md#session-unlock-one-touch-id-per-15-minutes) for what this trades off.
 
 ## Using it with agents
 

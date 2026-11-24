@@ -112,6 +112,43 @@ Exports come from elsewhere and are parsed by code that holds your keys:
 * Secure Enclave support uses the external `age-plugin-se` binary from your
   `PATH`; its integrity is your package manager's responsibility.
 
+## Session unlock (one Touch ID per 15 minutes)
+
+**Choice: a short-lived per-user agent process, not a Keychain item.**
+After a fresh Touch ID (or `openvault unlock --for 15m`), `openvault __agent`
+holds the value key in `mlock`ed memory and serves decryptions over a Unix
+socket until the TTL ends, `openvault lock` is run, the machine sleeps, or (macOS)
+the screen locks. It then deletes the socket and zeroizes the key.
+
+Why not a Keychain item with `kSecAttrAccessible…ThisDeviceOnly` + an
+`LAContext` reuse window? The `LAContext` reuse duration lives inside one
+process, so a CLI that exits after every command cannot share it. Making it
+work would mean caching the key in the Keychain itself, which puts key material
+on disk (encrypted by the login keychain). It would also need Objective-C/Swift
+bindings and code signing for the data-protection keychain. The agent keeps
+the "no key material on disk, ever" property and needs no entitlements.
+
+| Control | Detail |
+|---|---|
+| Key never leaves the agent | clients send *names*; the agent decrypts and returns only those values |
+| Socket | `0600` in a `0700` per-user dir (`$XDG_RUNTIME_DIR/openvault` or `/tmp/openvault-<uid>`, refused if not ours) |
+| Peer check | kernel-provided peer uid (`getpeereid` / `SO_PEERCRED`) must equal ours; rejections are audited |
+| Process hardening | no core dumps, `PT_DENY_ATTACH` / non-dumpable, minimal environment, own process group |
+| Expiry | TTL (default 15 min, `session_ttl` in `vault.json`, `OPENVAULT_SESSION_TTL`, `unlock --for`, max 24 h), `lock`, sleep (wall vs monotonic clock), macOS screen lock (`IOConsoleLocked`) |
+| `confirm` secrets | the **agent** refuses them, so a direct socket client cannot bypass the fresh-Touch-ID rule |
+| Attribution | every session read is audited with the requesting pid and process name |
+
+**New risk:** while a session is open, any process running as you can ask the
+agent for values. That includes an agent, or a script it writes, talking to the
+socket directly and skipping the CLI's project policy. Mitigations: the session
+is short and visible (`openvault unlock` prints its length), `confirm` secrets are
+never released, the agent keeps the secret *bound* to its name (no swaps), and every
+request lands in the hash-chained audit log with the requesting process. For
+the strictest setup set `session_ttl = "0"`: every use then needs Touch ID.
+Tests: `tests/session.rs` (TTL expiry, lock, confirm refusal incl. direct
+socket, socket permissions, audit attribution, MCP) and `session::tests`
+(peer-uid rejection, kernel peer credentials).
+
 ## Out of scope
 
 * Root / kernel compromise, malware running as you with write access to your
