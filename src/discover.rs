@@ -172,7 +172,20 @@ pub fn resolve_var(
             }
         }
     }
-    bail!("no secret provides {var} here (try `openvault env` or `openvault search {var}`)")
+    if let Some(m) = all.iter().find(|m| m.env_var() == var) {
+        match project {
+            Some(p) if !p.allows(&m.name) => bail!(
+                "{var} comes from {} but {} does not allow it here; add it to `allow` or [env]",
+                m.name,
+                p.file.display()
+            ),
+            _ => bail!(
+                "{var} comes from {}, which is scoped to other directories",
+                m.name
+            ),
+        }
+    }
+    bail!("no secret provides {var} (try `openvault search {var}`, or ask the user to `openvault add`)")
 }
 
 #[cfg(test)]
