@@ -1,0 +1,3 @@
+url,username,password,totp,extra,name,grouping,fav
+https://news.example,carol,lp-fake-pass-1,,,News Site,Social,0
+http://sn,,,,"Wifi password: lp-fake-wifi",Home Wifi,Secure Notes,0
