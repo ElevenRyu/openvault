@@ -1,2 +1,6 @@
 /target
+.envrc
 .envrc.local
+/fuzz/target
+/fuzz/corpus
+/fuzz/artifacts
