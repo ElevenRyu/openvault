@@ -16,7 +16,8 @@ use crate::names;
 use crate::platform::{self, SecretBuf};
 use crate::policy::{self, Project};
 use crate::redact::Redactor;
-use crate::unlock::{self, Auth};
+use crate::session;
+use crate::unlock::Auth;
 use crate::vault::{Meta, MetaKeys, Vault};
 
 /// Variables passed through by `--clean-env` (and to every MCP-launched child).
@@ -187,7 +188,7 @@ pub fn prepare(v: &Vault, mk: &MetaKeys, req: &Request, via: &str) -> Result<Pre
             auth: Auth::Environment,
         });
     }
-    let vk = unlock::value_key(v, confirm).inspect_err(|e| {
+    let vals = session::values(v, confirm).inspect_err(|e| {
         let _ = audit::record(
             &v.home,
             "run",
@@ -197,9 +198,11 @@ pub fn prepare(v: &Vault, mk: &MetaKeys, req: &Request, via: &str) -> Result<Pre
             via,
         );
     })?;
+    let plain = vals.read_many(v, mk, &names).inspect_err(|e| {
+        let _ = audit::record(&v.home, "run", &names, false, Some(e.to_string()), via);
+    })?;
     let mut values = Vec::new();
-    for i in &inj {
-        let val = v.read_value(mk, &vk.identity, &i.name)?;
+    for (i, val) in inj.iter().zip(plain) {
         if val.as_bytes().contains(&0) {
             bail!(
                 "{} contains a NUL byte and cannot be passed as an environment variable",
@@ -211,7 +214,7 @@ pub fn prepare(v: &Vault, mk: &MetaKeys, req: &Request, via: &str) -> Result<Pre
     audit::record(&v.home, "run", &names, true, None, via)?;
     Ok(Prepared {
         values,
-        auth: vk.auth,
+        auth: vals.auth(),
     })
 }
 

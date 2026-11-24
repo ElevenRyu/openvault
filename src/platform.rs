@@ -121,10 +121,14 @@ pub fn ppid() -> u32 {
 
 /// Best-effort name of the parent process (for the audit log's "who").
 pub fn parent_process_name() -> Option<String> {
-    let ppid = ppid();
+    process_name(ppid())
+}
+
+/// Name of any process by pid (best effort; used to attribute session requests).
+pub fn process_name(pid: u32) -> Option<String> {
     #[cfg(target_os = "linux")]
     {
-        fs::read_to_string(format!("/proc/{ppid}/comm"))
+        fs::read_to_string(format!("/proc/{pid}/comm"))
             .ok()
             .map(|s| s.trim().to_string())
     }
@@ -134,7 +138,7 @@ pub fn parent_process_name() -> Option<String> {
         // SAFETY: buffer pointer and size describe `buf`, which outlives the call.
         let n = unsafe {
             libc::proc_pidpath(
-                ppid as libc::c_int,
+                pid as libc::c_int,
                 buf.as_mut_ptr() as *mut libc::c_void,
                 buf.len() as u32,
             )
@@ -153,8 +157,69 @@ pub fn parent_process_name() -> Option<String> {
     }
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     {
-        let _ = ppid;
+        let _ = pid;
         None
+    }
+}
+
+/// Credentials of the process on the other end of a Unix socket: (uid, pid).
+/// Uses `getpeereid` + `LOCAL_PEERPID` on macOS and `SO_PEERCRED` on Linux;
+/// the kernel fills these in, so the peer cannot lie about them.
+pub fn peer_credentials(fd: std::os::fd::RawFd) -> io::Result<(u32, Option<u32>)> {
+    #[cfg(target_os = "macos")]
+    {
+        let mut uid: libc::uid_t = 0;
+        let mut gid: libc::gid_t = 0;
+        // SAFETY: fd is a connected Unix socket owned by the caller; out-params are valid.
+        if unsafe { libc::getpeereid(fd, &mut uid, &mut gid) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        const SOL_LOCAL: libc::c_int = 0;
+        const LOCAL_PEERPID: libc::c_int = 2;
+        let mut pid: libc::pid_t = 0;
+        let mut len = std::mem::size_of::<libc::pid_t>() as libc::socklen_t;
+        // SAFETY: valid fd and out-params sized for pid_t.
+        let rc = unsafe {
+            libc::getsockopt(
+                fd,
+                SOL_LOCAL,
+                LOCAL_PEERPID,
+                &mut pid as *mut _ as *mut libc::c_void,
+                &mut len,
+            )
+        };
+        Ok((uid, (rc == 0).then_some(pid as u32)))
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let mut cred = libc::ucred {
+            pid: 0,
+            uid: 0,
+            gid: 0,
+        };
+        let mut len = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
+        // SAFETY: valid fd and out-params sized for ucred.
+        let rc = unsafe {
+            libc::getsockopt(
+                fd,
+                libc::SOL_SOCKET,
+                libc::SO_PEERCRED,
+                &mut cred as *mut _ as *mut libc::c_void,
+                &mut len,
+            )
+        };
+        if rc != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok((cred.uid, Some(cred.pid as u32)))
+    }
+}
+
+/// Ignore SIGHUP (the session agent must outlive the terminal that started it).
+pub fn ignore_hangup() {
+    // SAFETY: installing SIG_IGN for a standard signal.
+    unsafe {
+        libc::signal(libc::SIGHUP, libc::SIG_IGN);
     }
 }
 

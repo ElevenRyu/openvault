@@ -35,6 +35,7 @@ the tests that prove each property, and the explicit non-goals.
 | Tamper-evident storage | values bound to names inside the ciphertext | `swapped_ciphertexts_are_detected` |
 | Memory hygiene | `zeroize`, `mlock`, `RLIMIT_CORE=0`, `PT_DENY_ATTACH` / `PR_SET_DUMPABLE` | `platform::*`, `child_runs_without_core_dumps` |
 | Hostile imports | size caps, zip-bomb cap, no panics, fuzzed, `--shred` | `import_rejects_*`, `parsers_never_panic_on_garbage`, `import_shred_removes_plaintext_export` |
+| Session unlock without key on disk | in-memory agent, 0600 socket in 0700 dir, peer-uid check, TTL/lock/sleep/screen-lock expiry, `confirm` refused by the agent, requests audited with pid | `tests/session.rs`, `session::tests` |
 | Supply chain | `cargo deny`, `cargo audit`, unsafe confined, reproducible build, static musl binary | CI jobs `supply-chain`, `reproducible`, `static-linux` |
 
 ## Verifying a build

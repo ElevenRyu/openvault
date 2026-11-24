@@ -17,6 +17,7 @@ use crate::names;
 use crate::platform::{self, SecretBuf};
 use crate::policy;
 use crate::run::{self, Request};
+use crate::session;
 use crate::unlock::{self, Auth};
 use crate::util;
 use crate::vault::{self, Meta, Vault};
@@ -163,8 +164,19 @@ enum Cmd {
         #[arg(short, default_value_t = 20)]
         n: usize,
     },
+    /// Unlock values for a while (one Touch ID), so `run` and MCP don't ask every time.
+    Unlock {
+        /// Session length, e.g. 90s, 15m, 1h (default: session_ttl in vault.json, else 15m).
+        #[arg(long = "for")]
+        ttl: Option<String>,
+    },
+    /// End the unlock session now.
+    Lock,
     /// Serve the agent tools (search, list_env, run) over MCP stdio.
     Mcp,
+    /// Internal: the session agent process.
+    #[command(name = "__agent", hide = true)]
+    Agent,
 }
 
 pub fn main() -> i32 {
@@ -234,6 +246,20 @@ fn dispatch(cmd: Cmd) -> Result<i32> {
             shred,
         ),
         Cmd::Audit { action, n } => cmd_audit(action.as_deref(), n),
+        Cmd::Unlock { ttl } => cmd_unlock(ttl),
+        Cmd::Lock => {
+            let v = Vault::open()?;
+            if session::lock(&v)? {
+                eprintln!("openvault: locked");
+            } else {
+                eprintln!("openvault: no active session");
+            }
+            Ok(0)
+        }
+        Cmd::Agent => {
+            session::serve_agent()?;
+            Ok(0)
+        }
         Cmd::Mcp => {
             mcp::serve()?;
             Ok(0)
@@ -723,5 +749,33 @@ fn cmd_audit(action: Option<&str>, n: usize) -> Result<i32> {
         }
         Some(other) => bail!("unknown audit action {other:?} (use `verify`)"),
     }
+    Ok(0)
+}
+
+fn cmd_unlock(ttl: Option<String>) -> Result<i32> {
+    let v = Vault::open()?;
+    let ttl = match ttl {
+        Some(t) => session::parse_duration(&t)?,
+        None => session::configured_ttl(&v)?,
+    };
+    if ttl.is_zero() {
+        bail!("session TTL is 0 (sessions disabled); pass --for 15m");
+    }
+    // Always a fresh human unlock: never extend a session from a session.
+    session::lock(&v)?;
+    let vk = unlock::value_key(&v, false)?;
+    session::start(&v, &vk.identity, ttl)?;
+    audit::record(
+        &v.home,
+        "unlock",
+        &[],
+        true,
+        Some(format!("session {}", session::human(ttl))),
+        "cli",
+    )?;
+    eprintln!(
+        "openvault: unlocked for {} — `openvault lock` ends it early; secrets tagged `confirm` still need Touch ID",
+        session::human(ttl)
+    );
     Ok(0)
 }

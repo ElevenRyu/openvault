@@ -34,6 +34,8 @@ pub enum Auth {
     Interactive,
     /// Key material came from the environment (CI). Holder already has root access.
     Environment,
+    /// Served by a live session agent (unlocked earlier by a human, within its TTL).
+    Session,
 }
 
 pub struct ValueKey {
@@ -142,6 +144,7 @@ pub fn init(home: &Path, opts: &InitOptions) -> Result<InitResult> {
         meta_recipient: meta.recipient().to_string(),
         unlock: method.clone(),
         created: util::now_utc(),
+        session_ttl: Some("15m".into()),
     };
     let meta_cache = store_meta_cache(home, &cfg, &meta)?;
     util::write_atomic(
@@ -295,7 +298,7 @@ fn env_keys(v: &Vault) -> Result<Option<(x25519::Identity, Option<MetaKeys>)>> {
     Ok(Some((value, Some(meta))))
 }
 
-fn meta_from_value(v: &Vault, vk: &x25519::Identity) -> Result<MetaKeys> {
+pub fn meta_from_value(v: &Vault, vk: &x25519::Identity) -> Result<MetaKeys> {
     let ct = fs::read(v.keys_dir().join("meta.age"))?;
     let pt = Zeroizing::new(age::decrypt(vk, &ct)?);
     MetaKeys::parse(std::str::from_utf8(&pt)?)
@@ -332,9 +335,6 @@ pub fn value_key(v: &Vault, require_interactive: bool) -> Result<ValueKey> {
             });
         }
     }
-    if std::env::var_os("OPENVAULT_NO_PROMPT").is_some() {
-        bail!("a fresh Touch ID / passphrase unlock is required, but OPENVAULT_NO_PROMPT is set");
-    }
     match v.cfg.unlock.as_str() {
         "se" => unlock_se(v),
         "passphrase" => unlock_passphrase(v, require_interactive),
@@ -342,7 +342,15 @@ pub fn value_key(v: &Vault, require_interactive: bool) -> Result<ValueKey> {
     }
 }
 
+fn no_prompt_guard() -> Result<()> {
+    if std::env::var_os("OPENVAULT_NO_PROMPT").is_some() {
+        bail!("a fresh Touch ID / passphrase unlock is required, but OPENVAULT_NO_PROMPT is set");
+    }
+    Ok(())
+}
+
 fn unlock_se(v: &Vault) -> Result<ValueKey> {
+    no_prompt_guard()?;
     let id_text = Zeroizing::new(fs::read_to_string(v.keys_dir().join("se.identity"))?);
     let line = id_text
         .lines()
@@ -377,6 +385,7 @@ fn unlock_passphrase(v: &Vault, require_interactive: bool) -> Result<ValueKey> {
     let (pass, auth) = match std::env::var(ENV_PASSPHRASE) {
         Ok(p) if !require_interactive => (SecretString::from(p), Auth::Environment),
         _ => {
+            no_prompt_guard()?;
             let _ = io::stderr().flush();
             let p = rpassword::prompt_password("openvault passphrase: ")
                 .context("a passphrase is required (no terminal available?)")?;
